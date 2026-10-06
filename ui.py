@@ -37,137 +37,143 @@ st.set_page_config(
 # ============================================================
 # CUSTOM COLOR THEME — TAUPE, UMBER, CACAO
 # ============================================================
-
 st.markdown("""
     <style>
 
     /* Main background */
     .stApp {
-        background-color: #2C1A13;
+        background-color: #EFF0D1;
     }
 
     /* Sidebar */
     [data-testid="stSidebar"] {
-        background-color: #3B2219;
-        border-right: 1px solid #635147;
+        background-color: #FFFFFF;
+        border-right: 1px solid #E2E8F0;
     }
 
     /* Sidebar text */
     [data-testid="stSidebar"] * {
-        color: #D4C5BC !important;
+        color: #4A5568 !important;
     }
 
     /* Main text */
     .stMarkdown, .stText, p, h1, h2, h3, h4, label {
-        color: #D4C5BC !important;
+        color: #2D3748 !important;
     }
 
     /* Cards / metric containers */
     [data-testid="metric-container"] {
-        background-color: #3B2219;
-        border: 1px solid #635147;
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
         border-radius: 10px;
         padding: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
 
     /* Metric label */
     [data-testid="metric-container"] label {
-        color: #B5A49B !important;
+        color: #718096 !important;
     }
 
     /* Metric value */
     [data-testid="metric-container"] [data-testid="metric-value"] {
-        color: #E8D5C4 !important;
+        color: #2D3748 !important;
     }
 
     /* Buttons */
     .stButton > button {
-        background-color: #635147;
-        color: #E8D5C4;
-        border: 1px solid #B5A49B;
+        background-color: #7EB8D4;
+        color: #FFFFFF;
+        border: none;
         border-radius: 8px;
         font-weight: 600;
         transition: all 0.2s;
     }
 
     .stButton > button:hover {
-        background-color: #B5A49B;
-        color: #2C1A13;
-        border-color: #E8D5C4;
+        background-color: #5A9DBF;
+        color: #FFFFFF;
     }
 
     /* Input fields */
     .stTextInput input,
     .stNumberInput input,
     .stSelectbox select {
-        background-color: #3B2219;
-        color: #E8D5C4;
-        border: 1px solid #635147;
+        background-color: #FFFFFF;
+        color: #2D3748;
+        border: 1px solid #CBD5E0;
         border-radius: 6px;
     }
 
     /* Form */
     [data-testid="stForm"] {
-        background-color: #3B2219;
-        border: 1px solid #635147;
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
         border-radius: 12px;
         padding: 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
 
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
-        background-color: #3B2219;
+        background-color: #EDF2F7;
         border-radius: 8px;
     }
 
     .stTabs [data-baseweb="tab"] {
-        color: #B5A49B;
+        color: #718096;
         font-weight: 500;
     }
 
     .stTabs [aria-selected="true"] {
-        background-color: #635147;
-        color: #E8D5C4 !important;
+        background-color: #7EB8D4;
+        color: #FFFFFF !important;
         border-radius: 8px;
     }
 
     /* Dataframe */
     [data-testid="stDataFrame"] {
-        border: 1px solid #635147;
+        border: 1px solid #E2E8F0;
         border-radius: 8px;
+        background-color: #FFFFFF;
     }
 
     /* Divider */
     hr {
-        border-color: #635147;
+        border-color: #E2E8F0;
     }
 
-    /* Success / Error / Warning */
+    /* Success */
     .stSuccess {
-        background-color: #1E3A2F;
-        border-color: #2D6A4F;
+        background-color: #F0FFF4;
+        border-color: #9AE6B4;
+        color: #276749;
     }
 
+    /* Error */
     .stError {
-        background-color: #3A1A1A;
-        border-color: #7A2D2D;
+        background-color: #FFF5F5;
+        border-color: #FEB2B2;
+        color: #9B2C2C;
     }
 
+    /* Warning */
     .stWarning {
-        background-color: #3A2E1A;
-        border-color: #7A5E2D;
+        background-color: #FFFBEB;
+        border-color: #F6E05E;
+        color: #975A16;
     }
 
     /* Title styling */
     .main-title {
-        color: #E8D5C4;
+        color: #2D3748;
         font-size: 2rem;
         font-weight: 700;
         margin-bottom: 0.5rem;
     }
 
     .sub-title {
-        color: #B5A49B;
+        color: #718096;
         font-size: 1rem;
         margin-bottom: 1.5rem;
     }
@@ -175,33 +181,35 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
 # ============================================================
 # PLOTLY THEME — TAUPE UMBER CACAO
 # ============================================================
 
 PLOTLY_COLORS = [
-    "#B5A49B",
-    "#8B6F5E",
-    "#635147",
-    "#E8D5C4",
-    "#3B2219",
-    "#D4A88A",
-    "#A07060"
+    "#7EB8D4",   # soft sky blue
+    "#85C1A3",   # mint green
+    "#F4A97F",   # warm peach
+    "#B8A9D9",   # lavender
+    "#F7C96E",   # soft amber
+    "#89C4C4",   # teal mist
+    "#F29BB0"    # blush pink
 ]
 
 PLOTLY_LAYOUT = dict(
-    paper_bgcolor="#3B2219",
-    plot_bgcolor="#2C1A13",
-    font=dict(color="#D4C5BC"),
-    title_font=dict(color="#E8D5C4"),
+    paper_bgcolor="#FDE0C5",   # near white background
+    plot_bgcolor="#F0F4F8",    # very light blue grey
+    font=dict(color="#4A5568"),
+    title_font=dict(
+        color="#2D3748",
+        size=16
+    ),
     xaxis=dict(
-        gridcolor="#635147",
-        color="#B5A49B"
+        gridcolor="#E2E8F0",   # very soft grid lines
+        color="#718096"
     ),
     yaxis=dict(
-        gridcolor="#635147",
-        color="#B5A49B"
+        gridcolor="#E2E8F0",
+        color="#718096"
     )
 )
 
