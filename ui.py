@@ -1,13 +1,11 @@
-import streamlit as st
-import plotly.express as px
-import pandas as pd
 import builtins
 
-from data.data_manager import (
-    add_student,
-    load_students,
-    student_exists
-)
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, when
+from pyspark.sql.functions import round as spark_round
 
 from analytics import (
     register_student_view,
@@ -15,248 +13,111 @@ from analytics import (
     sql_top_students,
     sql_at_risk_students,
     rdd_grade_distribution,
-    rdd_pass_fail_distribution
+    rdd_pass_fail_distribution,
 )
+from data.data_manager import add_student, load_students, student_exists
+from ml_model import predict_student_support, get_model_evaluation
 
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, when, avg
-from pyspark.sql.functions import round as spark_round
-
-
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
 
 st.set_page_config(
-    page_title="Student Performance Analytics",
+    page_title="Student Assistance | Academic Analytics",
     page_icon="🎓",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-
-# ============================================================
-# CUSTOM COLOR THEME — TAUPE, UMBER, CACAO
-# ============================================================
-st.markdown("""
+# ---------------------------- THEME ----------------------------
+st.markdown(
+    """
     <style>
-
-    /* Main background */
-    .stApp {
-        background-color: #EFF0D1;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    :root {
+        --bg: #F4F7FC; --primary: #356FE5; --primary-dark: #2457C5;
+        --primary-soft: #EAF1FF; --text: #1E293B; --muted: #64748B;
+        --border: #E2E8F0;
     }
-
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #FFFFFF;
-        border-right: 1px solid #E2E8F0;
-    }
-
-    /* Sidebar text */
-    [data-testid="stSidebar"] * {
-        color: #4A5568 !important;
-    }
-
-    /* Main text */
-    .stMarkdown, .stText, p, h1, h2, h3, h4, label {
-        color: #2D3748 !important;
-    }
-
-    /* Cards / metric containers */
-    [data-testid="metric-container"] {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 10px;
-        padding: 16px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    }
-
-    /* Metric label */
-    [data-testid="metric-container"] label {
-        color: #718096 !important;
-    }
-
-    /* Metric value */
-    [data-testid="metric-container"] [data-testid="metric-value"] {
-        color: #2D3748 !important;
-    }
-
-    /* Buttons */
-    .stButton > button {
-        background-color: #7EB8D4;
-        color: #FFFFFF;
-        border: none;
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.2s;
-    }
-
-    .stButton > button:hover {
-        background-color: #5A9DBF;
-        color: #FFFFFF;
-    }
-
-    /* Input fields */
-    .stTextInput input,
-    .stNumberInput input,
-    .stSelectbox select {
-        background-color: #FFFFFF;
-        color: #2D3748;
-        border: 1px solid #CBD5E0;
-        border-radius: 6px;
-    }
-
-    /* Form */
-    [data-testid="stForm"] {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    }
-
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #EDF2F7;
-        border-radius: 8px;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        color: #718096;
-        font-weight: 500;
-    }
-
-    .stTabs [aria-selected="true"] {
-        background-color: #7EB8D4;
-        color: #FFFFFF !important;
-        border-radius: 8px;
-    }
-
-    /* Dataframe */
-    [data-testid="stDataFrame"] {
-        border: 1px solid #E2E8F0;
-        border-radius: 8px;
-        background-color: #FFFFFF;
-    }
-
-    /* Divider */
-    hr {
-        border-color: #E2E8F0;
-    }
-
-    /* Success */
-    .stSuccess {
-        background-color: #F0FFF4;
-        border-color: #9AE6B4;
-        color: #276749;
-    }
-
-    /* Error */
-    .stError {
-        background-color: #FFF5F5;
-        border-color: #FEB2B2;
-        color: #9B2C2C;
-    }
-
-    /* Warning */
-    .stWarning {
-        background-color: #FFFBEB;
-        border-color: #F6E05E;
-        color: #975A16;
-    }
-
-    /* Title styling */
-    .main-title {
-        color: #2D3748;
-        font-size: 2rem;
-        font-weight: 700;
-        margin-bottom: 0.5rem;
-    }
-
-    .sub-title {
-        color: #718096;
-        font-size: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+    .stApp { background: var(--bg); color: var(--text); }
+    .block-container { max-width: 1450px; padding-top: 1.8rem; padding-bottom: 3rem; }
+    header[data-testid="stHeader"] { background: transparent; }
+    [data-testid="stSidebar"] { background: #FFFFFF !important; border-right: 1px solid var(--border); }
+    [data-testid="stSidebar"] * { color: var(--text); }
+    [data-testid="stSidebar"] [aria-checked="true"] { background: var(--primary-soft) !important; border-radius: 9px; }
+    h1, h2, h3, h4, p, label { color: var(--text); }
+    h1, h2, h3 { font-weight: 700; letter-spacing: -0.025em; }
+    .hero { background: linear-gradient(120deg, #FFFFFF 0%, #EEF4FF 100%); border: 1px solid #DCE7FB; border-radius: 18px; padding: 26px 28px; margin-bottom: 20px; }
+    .hero-kicker { color: #356FE5; font-size: .78rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; margin-bottom: 8px; }
+    .hero-title { color: #17356F; font-size: 2rem; line-height: 1.2; font-weight: 800; margin: 0 0 8px; }
+    .hero-subtitle { color: #64748B; font-size: .98rem; margin: 0; }
+    [data-testid="stMetric"] { background: #FFF; border: 1px solid var(--border); border-radius: 14px; padding: 17px 18px; box-shadow: 0 4px 16px rgba(30,64,175,.035); }
+    [data-testid="stMetricLabel"] { color: var(--muted) !important; font-size: .84rem; font-weight: 600; }
+    [data-testid="stMetricValue"] { color: var(--primary) !important; font-size: 1.75rem; font-weight: 800; }
+    .stButton > button, [data-testid="stFormSubmitButton"] > button { background: var(--primary); color: white !important; border: 1px solid var(--primary); border-radius: 9px; padding: .58rem 1rem; font-weight: 650; }
+    .stButton > button:hover, [data-testid="stFormSubmitButton"] > button:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+    .stTextInput input, .stNumberInput input, .stTextArea textarea { background: #FFF !important; color: var(--text) !important; border: 1px solid #CBD5E1 !important; border-radius: 9px !important; }
+    [data-testid="stSelectbox"] > div > div { background: #FFF !important; border-radius: 9px; }
+    [data-testid="stForm"] { background: #FFF; border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+    .stTabs [data-baseweb="tab-list"] { background: #EAF1FF; border-radius: 10px; padding: 5px; gap: 5px; }
+    .stTabs [data-baseweb="tab"] { color: #475569; border-radius: 8px; font-weight: 600; }
+    .stTabs [aria-selected="true"] { background: #FFF !important; color: var(--primary) !important; }
+    [data-testid="stDataFrame"] { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    [data-testid="stAlert"] { border-radius: 10px; }
+    hr { border-color: var(--border); margin: 1.4rem 0; }
+    .page-title { color: #1D4ED8; font-size: 2.05rem; font-weight: 800; letter-spacing: -.04em; margin-bottom: .25rem; }
+    .page-subtitle { color: #64748B; font-size: .98rem; margin-bottom: 1.25rem; }
+    @media (max-width: 768px) { .block-container { padding-top: 1rem; } .hero-title { font-size: 1.55rem; } .page-title { font-size: 1.65rem; } }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-# ============================================================
-# PLOTLY THEME — TAUPE UMBER CACAO
-# ============================================================
-
-PLOTLY_COLORS = [
-    "#7EB8D4",   # soft sky blue
-    "#85C1A3",   # mint green
-    "#F4A97F",   # warm peach
-    "#B8A9D9",   # lavender
-    "#F7C96E",   # soft amber
-    "#89C4C4",   # teal mist
-    "#F29BB0"    # blush pink
-]
-
+PLOTLY_COLORS = ["#356FE5", "#60A5FA", "#93C5FD", "#818CF8", "#34D399", "#FBBF24", "#F87171"]
+PASS_COLOR = "#16A34A"
+FAIL_COLOR = "#DC2626"
 PLOTLY_LAYOUT = dict(
-    paper_bgcolor="#FDE0C5",   # near white background
-    plot_bgcolor="#F0F4F8",    # very light blue grey
-    font=dict(color="#4A5568"),
-    title_font=dict(
-        color="#2D3748",
-        size=16
-    ),
-    xaxis=dict(
-        gridcolor="#E2E8F0",   # very soft grid lines
-        color="#718096"
-    ),
-    yaxis=dict(
-        gridcolor="#E2E8F0",
-        color="#718096"
-    )
+    paper_bgcolor="#FFFFFF",
+    plot_bgcolor="#FFFFFF",
+    font=dict(color="#475569", family="Inter, sans-serif"),
+    title_font=dict(color="#1E293B", size=16, family="Inter, sans-serif"),
+    xaxis=dict(gridcolor="#E9EEF7", color="#64748B", zerolinecolor="#CBD5E1"),
+    yaxis=dict(gridcolor="#E9EEF7", color="#64748B", zerolinecolor="#CBD5E1"),
+    legend=dict(bgcolor="#FFFFFF", bordercolor="#E2E8F0", borderwidth=1),
+    margin=dict(l=20, r=20, t=55, b=20),
 )
 
 
-# ============================================================
-# SPARK SETUP
-# ============================================================
-
+# ------------------------- SPARK SESSION -------------------------
 @st.cache_resource
 def get_spark():
-    spark = (
+    return (
         SparkSession.builder
-        .appName("Student Performance Analytics")
+        .appName("StudentAssistanceAnalytics")
         .master("local[*]")
+        .config("spark.ui.showConsoleProgress", "false")
         .getOrCreate()
     )
-    spark.sparkContext.setLogLevel("ERROR")
-    return spark
 
 
 spark = get_spark()
 
 
-# ============================================================
-# HELPER FUNCTIONS
-# ============================================================
-
 def create_dataframe():
+    """Read the student CSV with Spark; return None if there are no records."""
     students = load_students()
     if not students:
         return None
-    df = (
-        spark.read
-        .option("header", True)
+    return (
+        spark.read.option("header", True)
         .option("inferSchema", True)
         .csv("data/students.csv")
     )
-    return df
 
 
 def calculate_performance(df):
+    """Add average, grade, and pass/fail status to the Spark DataFrame."""
     df = df.withColumn(
         "Average",
-        spark_round(
-            (col("Math") + col("Science") + col("English")) / 3,
-            2
-        )
+        spark_round((col("Math") + col("Science") + col("English")) / 3, 2),
     )
     df = df.withColumn(
         "Grade",
@@ -264,666 +125,380 @@ def calculate_performance(df):
         .when(col("Average") >= 80, "B")
         .when(col("Average") >= 70, "C")
         .when(col("Average") >= 60, "D")
-        .otherwise("F")
+        .otherwise("F"),
     )
-    df = df.withColumn(
-        "Status",
-        when(col("Average") >= 40, "PASS")
-        .otherwise("FAIL")
+    return df.withColumn(
+        "Status", when(col("Average") >= 40, "PASS").otherwise("FAIL")
     )
-    return df
 
 
-# ============================================================
-# SIDEBAR NAVIGATION
-# ============================================================
+def show_title(title, subtitle=""):
+    st.markdown(f'<div class="page-title">{title}</div>', unsafe_allow_html=True)
+    if subtitle:
+        st.markdown(f'<div class="page-subtitle">{subtitle}</div>', unsafe_allow_html=True)
 
-st.sidebar.title("🎓 Student Analytics")
-st.sidebar.markdown("---")
 
-page = st.sidebar.radio(
-    "Navigate",
-    [
-        "📊 Dashboard",
-        "➕ Add Student",
-        "🔍 Find Student",
-        "👥 All Students",
-        "📈 Analytics",
-        "⚡ Spark SQL & RDD"
-    ]
+def to_pandas(df):
+    return df.toPandas()
+
+
+# ------------------------- SIDEBAR -------------------------
+st.sidebar.markdown(
+    """
+    <div style="padding:10px 4px 18px;border-bottom:1px solid #E2E8F0;margin-bottom:15px">
+      <div style="font-size:30px">🎓</div>
+      <div style="color:#1D4ED8;font-size:21px;font-weight:800">Student Assistance</div>
+      <div style="color:#64748B;font-size:12px;margin-top:5px">Academic Performance System</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
-
+page = st.sidebar.radio(
+    "NAVIGATION",
+    [
+        "📊 Dashboard", "➕ Add Student", "🔍 Find Student", "👥 All Students",
+        "📈 Analytics", "🤖 Performance Predictor", "⚡ Spark SQL & RDD",
+    ],
+)
 st.sidebar.markdown("---")
-st.sidebar.caption("Built with PySpark + Streamlit")
+st.sidebar.caption("Built with Streamlit, PySpark and Plotly")
+st.sidebar.caption("Student records are stored in data/students.csv")
 
 
-# ============================================================
-# PAGE 1 — DASHBOARD
-# ============================================================
-
+# ============================= DASHBOARD =============================
 if page == "📊 Dashboard":
-
     st.markdown(
-        '<div class="main-title">📊 Student Performance Dashboard</div>',
-        unsafe_allow_html=True
+        """
+        <div class="hero">
+          <div class="hero-kicker">ACADEMIC OVERVIEW</div>
+          <div class="hero-title">Student Performance Dashboard</div>
+          <p class="hero-subtitle">Understand class performance, attendance and subject trends at a glance.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    st.markdown(
-        '<div class="sub-title">Real-time analytics powered by Apache Spark</div>',
-        unsafe_allow_html=True
-    )
-    st.markdown("---")
-
     df = create_dataframe()
-
     if df is None:
-        st.warning(
-            "No student records found. Please add students first."
-        )
-
+        st.info("No student records found. Use Add Student to create the first record.")
     else:
-
-        df = calculate_performance(df)
-        pandas_df = df.toPandas()
-
-        # --- METRIC CARDS ---
-        col1, col2, col3, col4, col5 = st.columns(5)
-
-        with col1:
-            st.metric(
-                "Total Students",
-                len(pandas_df)
-            )
-
-        with col2:
-            st.metric(
-                "Class Average",
-                f"{pandas_df['Average'].mean():.2f}"
-            )
-
-        with col3:
-            st.metric(
-                "Avg Attendance",
-                f"{pandas_df['Attendance'].mean():.2f}%"
-            )
-
-        with col4:
-            st.metric(
-                "Avg Study Hours",
-                f"{pandas_df['Study_Hours'].mean():.2f}"
-            )
-
-        with col5:
-            pass_pct = (
-                len(pandas_df[pandas_df["Status"] == "PASS"])
-                / len(pandas_df) * 100
-            )
-            st.metric(
-                "Pass Percentage",
-                f"{pass_pct:.1f}%"
-            )
+        pdf = to_pandas(calculate_performance(df))
+        total = len(pdf)
+        pass_pct = pdf["Status"].eq("PASS").sum() / total * 100 if total else 0
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Total Students", total)
+        c2.metric("Class Average", f'{pdf["Average"].mean():.1f}')
+        c3.metric("Avg Attendance", f'{pdf["Attendance"].mean():.1f}%')
+        c4.metric("Study Hours / Day", f'{pdf["Study_Hours"].mean():.1f}')
+        c5.metric("Pass Rate", f"{pass_pct:.1f}%")
 
         st.markdown("---")
-
-        # --- CHARTS ROW 1 ---
-        col_a, col_b = st.columns(2)
-
-        with col_a:
+        left, right = st.columns(2)
+        with left:
             st.subheader("Grade Distribution")
-            grade_counts = (
-                pandas_df["Grade"]
-                .value_counts()
-                .reset_index()
-            )
-            grade_counts.columns = ["Grade", "Count"]
-            fig = px.bar(
-                grade_counts,
-                x="Grade",
-                y="Count",
-                color="Grade",
-                title="Students per Grade",
-                color_discrete_sequence=PLOTLY_COLORS
-            )
+            counts = pdf["Grade"].value_counts().reindex(["A", "B", "C", "D", "F"], fill_value=0)
+            chart_df = counts.rename_axis("Grade").reset_index(name="Students")
+            fig = px.bar(chart_df, x="Grade", y="Students", color="Grade",
+                         color_discrete_sequence=PLOTLY_COLORS, title="Students by grade")
+            fig.update_layout(**PLOTLY_LAYOUT)
+            st.plotly_chart(fig, use_container_width=True)
+        with right:
+            st.subheader("Pass / Fail")
+            status = pdf["Status"].value_counts().reindex(["PASS", "FAIL"], fill_value=0)
+            status_df = status.rename_axis("Status").reset_index(name="Students")
+            fig = px.pie(status_df, names="Status", values="Students", hole=.55,
+                         color="Status", color_discrete_map={"PASS": PASS_COLOR, "FAIL": FAIL_COLOR},
+                         title="Class result distribution")
+            fig.update_layout(**PLOTLY_LAYOUT)
+            fig.update_traces(marker=dict(line=dict(color="#FFFFFF", width=2)))
+            st.plotly_chart(fig, use_container_width=True)
+
+        left, right = st.columns(2)
+        with left:
+            st.subheader("Average Marks by Subject")
+            subject_df = pd.DataFrame({
+                "Subject": ["Math", "Science", "English"],
+                "Average": [pdf["Math"].mean(), pdf["Science"].mean(), pdf["English"].mean()],
+            })
+            fig = px.bar(subject_df, x="Subject", y="Average", color="Subject",
+                         color_discrete_sequence=PLOTLY_COLORS, title="Subject averages")
+            fig.update_layout(**PLOTLY_LAYOUT, yaxis_range=[0, 100])
+            st.plotly_chart(fig, use_container_width=True)
+        with right:
+            st.subheader("Attendance Distribution")
+            fig = px.histogram(pdf, x="Attendance", nbins=10,
+                               color_discrete_sequence=[PLOTLY_COLORS[0]],
+                               title="How attendance is distributed")
             fig.update_layout(**PLOTLY_LAYOUT)
             st.plotly_chart(fig, use_container_width=True)
 
-        with col_b:
-            st.subheader("Pass / Fail Distribution")
-            status_counts = (
-                pandas_df["Status"]
-                .value_counts()
-                .reset_index()
+        st.subheader("Students Needing Attention")
+        at_risk = pdf[(pdf["Attendance"] < 75) | (pdf["Average"] < 50)].copy()
+        if at_risk.empty:
+            st.success("No students meet the current attention thresholds.")
+        else:
+            st.dataframe(
+                at_risk[["Student_ID", "Name", "Attendance", "Average", "Grade", "Status"]].sort_values("Average"),
+                use_container_width=True, hide_index=True,
             )
-            status_counts.columns = ["Status", "Count"]
-            fig2 = px.pie(
-                status_counts,
-                names="Status",
-                values="Count",
-                color="Status",
-                color_discrete_map={
-                    "PASS": "#B5A49B",
-                    "FAIL": "#635147"
-                },
-                title="Pass vs Fail"
-            )
-            fig2.update_layout(**PLOTLY_LAYOUT)
-            st.plotly_chart(fig2, use_container_width=True)
-
-        # --- CHARTS ROW 2 ---
-        col_c, col_d = st.columns(2)
-
-        with col_c:
-            st.subheader("Subject Averages")
-            subject_data = pd.DataFrame({
-                "Subject": ["Math", "Science", "English"],
-                "Average": [
-                    pandas_df["Math"].mean(),
-                    pandas_df["Science"].mean(),
-                    pandas_df["English"].mean()
-                ]
-            })
-            fig3 = px.bar(
-                subject_data,
-                x="Subject",
-                y="Average",
-                color="Subject",
-                title="Average Marks by Subject",
-                color_discrete_sequence=PLOTLY_COLORS
-            )
-            fig3.update_layout(**PLOTLY_LAYOUT)
-            st.plotly_chart(fig3, use_container_width=True)
-
-        with col_d:
-            st.subheader("Attendance Distribution")
-            fig4 = px.histogram(
-                pandas_df,
-                x="Attendance",
-                nbins=10,
-                title="Attendance Distribution",
-                color_discrete_sequence=["#B5A49B"]
-            )
-            fig4.update_layout(**PLOTLY_LAYOUT)
-            st.plotly_chart(fig4, use_container_width=True)
 
 
-# ============================================================
-# PAGE 2 — ADD STUDENT
-# ============================================================
-
+# ============================= ADD STUDENT =============================
 elif page == "➕ Add Student":
-
-    st.markdown(
-        '<div class="main-title">➕ Add New Student</div>',
-        unsafe_allow_html=True
-    )
-    st.markdown("---")
-
-    with st.form("add_student_form"):
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            student_id = st.number_input(
-                "Student ID",
-                min_value=1,
-                step=1
-            )
+    show_title("Add a Student", "Enter student details and academic marks.")
+    with st.form("add_student_form", clear_on_submit=False):
+        left, right = st.columns(2)
+        with left:
+            student_id = st.number_input("Student ID", min_value=1, step=1)
             name = st.text_input("Full Name")
-            gender = st.selectbox(
-                "Gender",
-                ["Male", "Female", "Other"]
-            )
-            attendance = st.number_input(
-                "Attendance (%)",
-                min_value=0.0,
-                max_value=100.0,
-                value=75.0
-            )
-            study_hours = st.number_input(
-                "Study Hours per Day",
-                min_value=0.0,
-                max_value=24.0,
-                value=4.0
-            )
-
-        with col2:
-            math = st.number_input(
-                "Math Marks",
-                min_value=0.0,
-                max_value=100.0,
-                value=50.0
-            )
-            science = st.number_input(
-                "Science Marks",
-                min_value=0.0,
-                max_value=100.0,
-                value=50.0
-            )
-            english = st.number_input(
-                "English Marks",
-                min_value=0.0,
-                max_value=100.0,
-                value=50.0
-            )
-
-            # BUG FIX — use builtins.round
-            # not PySpark round
-            average = builtins.round(
-                (math + science + english) / 3,
-                2
-            )
-            st.metric("Calculated Average", average)
-
-        submitted = st.form_submit_button(
-            "➕ Add Student",
-            use_container_width=True
-        )
-
+            gender = st.selectbox("Gender", ["Female", "Male", "Other"])
+            attendance = st.number_input("Attendance (%)", min_value=0.0, max_value=100.0, value=75.0)
+            study_hours = st.number_input("Study Hours per Day", min_value=0.0, max_value=24.0, value=4.0)
+        with right:
+            math = st.number_input("Math Marks", min_value=0.0, max_value=100.0, value=50.0)
+            science = st.number_input("Science Marks", min_value=0.0, max_value=100.0, value=50.0)
+            english = st.number_input("English Marks", min_value=0.0, max_value=100.0, value=50.0)
+            average = builtins.round((math + science + english) / 3, 2)
+            st.metric("Calculated Average", f"{average:.2f} / 100")
+        submitted = st.form_submit_button("Save Student", use_container_width=True)
         if submitted:
-
             if not name.strip():
                 st.error("Name cannot be empty.")
-
             elif student_exists(int(student_id)):
-                st.error(
-                    f"Student ID {int(student_id)} already exists!"
-                )
-
+                st.error(f"Student ID {int(student_id)} already exists.")
             else:
                 student = {
-                    "Student_ID": int(student_id),
-                    "Name": name.strip(),
-                    "Gender": gender,
-                    "Attendance": attendance,
-                    "Study_Hours": study_hours,
-                    "Math": math,
-                    "Science": science,
-                    "English": english
+                    "Student_ID": int(student_id), "Name": name.strip(), "Gender": gender,
+                    "Attendance": attendance, "Study_Hours": study_hours,
+                    "Math": math, "Science": science, "English": english,
                 }
-
-                success = add_student(student)
-
-                if success:
-                    st.success(
-                        f"✅ Student {name} added successfully!"
-                    )
+                if add_student(student):
+                    st.success(f"Student {name.strip()} added successfully.")
                     st.balloons()
                 else:
-                    st.error("Could not add student.")
+                    st.error("The student could not be added. Please check the ID.")
 
 
-# ============================================================
-# PAGE 3 — FIND STUDENT
-# ============================================================
-
+# ============================= FIND STUDENT =============================
 elif page == "🔍 Find Student":
-
-    st.markdown(
-        '<div class="main-title">🔍 Find Student</div>',
-        unsafe_allow_html=True
-    )
-    st.markdown("---")
-
-    student_id = st.number_input(
-        "Enter Student ID",
-        min_value=1,
-        step=1
-    )
-
-    if st.button("🔍 Search", use_container_width=True):
-
+    show_title("Find a Student", "Search for a record by Student ID.")
+    student_id = st.number_input("Student ID", min_value=1, step=1, key="find_student_id")
+    if st.button("Search Student", use_container_width=True):
         df = create_dataframe()
-
         if df is None:
-            st.warning("No student records found.")
-
+            st.info("No student records are available yet.")
         else:
             df = calculate_performance(df)
-            result = df.filter(
-                col("Student_ID") == int(student_id)
-            )
-
-            if result.count() == 0:
-                st.error("❌ Student not found.")
-
+            rows = df.filter(col("Student_ID") == int(student_id)).limit(1).collect()
+            if not rows:
+                st.error("Student not found. Check the ID and try again.")
             else:
-                student = result.collect()[0]
-
-                st.success("✅ Student Found!")
-                st.markdown("---")
-
-                col1, col2 = st.columns(2)
-
-                with col1:
+                s = rows[0]
+                st.success("Student record found.")
+                a, b = st.columns(2)
+                with a:
                     st.subheader("Personal Information")
-                    st.write(
-                        f"**Student ID:** {student['Student_ID']}"
-                    )
-                    st.write(f"**Name:** {student['Name']}")
-                    st.write(f"**Gender:** {student['Gender']}")
-                    st.write(
-                        f"**Attendance:** {student['Attendance']}%"
-                    )
-                    st.write(
-                        f"**Study Hours:** "
-                        f"{student['Study_Hours']} hrs/day"
-                    )
-
-                with col2:
+                    st.write(f"**Student ID:** {s['Student_ID']}")
+                    st.write(f"**Name:** {s['Name']}")
+                    st.write(f"**Gender:** {s['Gender']}")
+                    st.write(f"**Attendance:** {s['Attendance']}%")
+                    st.write(f"**Study hours:** {s['Study_Hours']} per day")
+                with b:
                     st.subheader("Academic Performance")
-                    st.write(f"**Math:** {student['Math']}")
-                    st.write(f"**Science:** {student['Science']}")
-                    st.write(f"**English:** {student['English']}")
-                    st.write(f"**Average:** {student['Average']}")
-                    st.write(f"**Grade:** {student['Grade']}")
-
-                    if student["Status"] == "PASS":
-                        st.success(
-                            f"✅ Result: {student['Status']}"
-                        )
-                    else:
-                        st.error(
-                            f"❌ Result: {student['Status']}"
-                        )
+                    st.write(f"**Math:** {s['Math']}")
+                    st.write(f"**Science:** {s['Science']}")
+                    st.write(f"**English:** {s['English']}")
+                    st.metric("Average", f"{s['Average']:.2f} / 100")
+                    st.write(f"**Grade:** {s['Grade']}")
+                    st.success("Result: PASS") if s["Status"] == "PASS" else st.error("Result: FAIL")
 
 
-# ============================================================
-# PAGE 4 — ALL STUDENTS
-# ============================================================
-
+# ============================= ALL STUDENTS =============================
 elif page == "👥 All Students":
-
-    st.markdown(
-        '<div class="main-title">👥 All Students</div>',
-        unsafe_allow_html=True
-    )
-    st.markdown("---")
-
+    show_title("All Students", "Browse and filter saved student records.")
     df = create_dataframe()
-
     if df is None:
-        st.warning("No student records found.")
-
+        st.info("No student records are available yet.")
     else:
-        df = calculate_performance(df)
-        pandas_df = df.toPandas()
-
-        st.metric("Total Students", len(pandas_df))
-        st.markdown("---")
-
+        pdf = to_pandas(calculate_performance(df))
+        c1, c2 = st.columns([1, 2])
+        c1.metric("Total Students", len(pdf))
+        query = c2.text_input("Search by name or student ID")
+        if query.strip():
+            mask = (
+                pdf["Name"].astype(str).str.contains(query, case=False, na=False)
+                | pdf["Student_ID"].astype(str).str.contains(query, case=False, na=False)
+            )
+            pdf = pdf[mask]
         st.dataframe(
-            pandas_df[[
-                "Student_ID", "Name", "Gender",
-                "Attendance", "Study_Hours",
-                "Math", "Science", "English",
-                "Average", "Grade", "Status"
-            ]].sort_values("Student_ID"),
-            use_container_width=True
+            pdf[["Student_ID", "Name", "Gender", "Attendance", "Study_Hours",
+                 "Math", "Science", "English", "Average", "Grade", "Status"]].sort_values("Student_ID"),
+            use_container_width=True, hide_index=True,
+        )
+        st.download_button(
+            "Download displayed records as CSV",
+            data=pdf.to_csv(index=False).encode("utf-8"),
+            file_name="student_records.csv", mime="text/csv",
         )
 
 
-# ============================================================
-# PAGE 5 — ANALYTICS
-# ============================================================
-
+# ============================= ANALYTICS =============================
 elif page == "📈 Analytics":
-
-    st.markdown(
-        '<div class="main-title">📈 Detailed Analytics</div>',
-        unsafe_allow_html=True
-    )
-    st.markdown("---")
-
+    show_title("Detailed Analytics", "Explore student outcomes and possible support needs.")
     df = create_dataframe()
-
     if df is None:
-        st.warning("No student records found.")
-
+        st.info("No student records are available yet.")
     else:
-        df = calculate_performance(df)
-        pandas_df = df.toPandas()
-
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "🏆 Top Students",
-            "⚠️ At Risk",
-            "📚 Subjects",
-            "🔗 Correlations"
-        ])
-
-        # --- TOP STUDENTS ---
+        pdf = to_pandas(calculate_performance(df))
+        tab1, tab2, tab3, tab4 = st.tabs(["🏆 Top Students", "⚠️ At Risk", "📚 Subjects", "🔗 Correlations"])
         with tab1:
-            st.subheader("🏆 Top 5 Students")
-            top = (
-                pandas_df
-                .sort_values("Average", ascending=False)
-                .head(5)
-            )
-            st.dataframe(
-                top[[
-                    "Student_ID", "Name",
-                    "Average", "Grade", "Status"
-                ]],
-                use_container_width=True
-            )
-            fig = px.bar(
-                top,
-                x="Name",
-                y="Average",
-                color="Grade",
-                title="Top 5 Students by Average",
-                color_discrete_sequence=PLOTLY_COLORS
-            )
-            fig.update_layout(**PLOTLY_LAYOUT)
+            st.subheader("Top 5 Students")
+            top = pdf.sort_values("Average", ascending=False).head(5)
+            st.dataframe(top[["Student_ID", "Name", "Average", "Grade", "Status"]],
+                         use_container_width=True, hide_index=True)
+            fig = px.bar(top, x="Name", y="Average", color="Grade",
+                         color_discrete_sequence=PLOTLY_COLORS, title="Top students by average")
+            fig.update_layout(**PLOTLY_LAYOUT, yaxis_range=[0, 100])
             st.plotly_chart(fig, use_container_width=True)
-
-        # --- AT RISK ---
         with tab2:
-            st.subheader("⚠️ At-Risk Students")
-            at_risk = pandas_df[
-                (pandas_df["Attendance"] < 75) |
-                (pandas_df["Average"] < 50)
-            ].copy()
-
-            if len(at_risk) == 0:
-                st.success("✅ No at-risk students found!")
+            st.subheader("Students Requiring Attention")
+            at_risk = pdf[(pdf["Attendance"] < 75) | (pdf["Average"] < 50)].copy()
+            if at_risk.empty:
+                st.success("No students meet the current attention thresholds.")
             else:
-                def get_reason(row):
-                    if (
-                        row["Attendance"] < 75
-                        and row["Average"] < 50
-                    ):
-                        return "Low Attendance + Low Performance"
-                    elif row["Attendance"] < 75:
-                        return "Low Attendance"
-                    else:
-                        return "Low Academic Performance"
-
-                at_risk["Reason"] = at_risk.apply(
-                    get_reason, axis=1
-                )
-                st.dataframe(
-                    at_risk[[
-                        "Student_ID", "Name",
-                        "Attendance", "Average",
-                        "Grade", "Reason"
-                    ]],
-                    use_container_width=True
-                )
-
-        # --- SUBJECTS ---
+                def reason(row):
+                    if row["Attendance"] < 75 and row["Average"] < 50:
+                        return "Low attendance and low marks"
+                    if row["Attendance"] < 75:
+                        return "Attendance below 75%"
+                    return "Average below 50"
+                at_risk["Reason"] = at_risk.apply(reason, axis=1)
+                st.dataframe(at_risk[["Student_ID", "Name", "Attendance", "Average", "Grade", "Reason"]].sort_values("Average"),
+                             use_container_width=True, hide_index=True)
+                st.caption("These are transparent threshold-based flags, not ML predictions.")
         with tab3:
-            st.subheader("📚 Subject Analysis")
-
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
-                st.metric(
-                    "Math Average",
-                    f"{pandas_df['Math'].mean():.2f}"
-                )
-            with col2:
-                st.metric(
-                    "Science Average",
-                    f"{pandas_df['Science'].mean():.2f}"
-                )
-            with col3:
-                st.metric(
-                    "English Average",
-                    f"{pandas_df['English'].mean():.2f}"
-                )
-
-            fig = px.box(
-                pandas_df,
-                y=["Math", "Science", "English"],
-                title="Subject Score Distribution",
-                color_discrete_sequence=PLOTLY_COLORS
-            )
+            st.subheader("Subject Analysis")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Math Average", f'{pdf["Math"].mean():.2f}')
+            m2.metric("Science Average", f'{pdf["Science"].mean():.2f}')
+            m3.metric("English Average", f'{pdf["English"].mean():.2f}')
+            fig = px.box(pdf, y=["Math", "Science", "English"], title="Subject score distribution",
+                         color_discrete_sequence=PLOTLY_COLORS)
             fig.update_layout(**PLOTLY_LAYOUT)
             st.plotly_chart(fig, use_container_width=True)
-
-        # --- CORRELATIONS ---
         with tab4:
-            st.subheader("🔗 Attendance vs Performance")
-            fig = px.scatter(
-                pandas_df,
-                x="Attendance",
-                y="Average",
-                color="Grade",
-                size="Study_Hours",
-                hover_data=["Name"],
-                title="Attendance vs Average Marks",
-                color_discrete_sequence=PLOTLY_COLORS
-            )
-            fig.update_layout(**PLOTLY_LAYOUT)
+            st.subheader("Attendance vs Performance")
+            fig = px.scatter(pdf, x="Attendance", y="Average", color="Grade", size="Study_Hours",
+                             hover_data=["Name"], color_discrete_sequence=PLOTLY_COLORS,
+                             title="Attendance vs average marks")
+            fig.update_layout(**PLOTLY_LAYOUT, yaxis_range=[0, 100])
             st.plotly_chart(fig, use_container_width=True)
-
-            st.subheader("🔗 Study Hours vs Performance")
-            fig2 = px.scatter(
-                pandas_df,
-                x="Study_Hours",
-                y="Average",
-                color="Grade",
-                hover_data=["Name"],
-                title="Study Hours vs Average Marks",
-                color_discrete_sequence=PLOTLY_COLORS
-            )
-            fig2.update_layout(**PLOTLY_LAYOUT)
+            fig2 = px.scatter(pdf, x="Study_Hours", y="Average", color="Grade",
+                              hover_data=["Name"], color_discrete_sequence=PLOTLY_COLORS,
+                              title="Study hours vs average marks")
+            fig2.update_layout(**PLOTLY_LAYOUT, yaxis_range=[0, 100])
             st.plotly_chart(fig2, use_container_width=True)
 
 
-# ============================================================
-# PAGE 6 — SPARK SQL & RDD
-# ============================================================
-
-elif page == "⚡ Spark SQL & RDD":
-
-    st.markdown(
-        '<div class="main-title">⚡ Spark SQL & RDD Analytics</div>',
-        unsafe_allow_html=True
+# ============================= ML PREDICTOR =============================
+elif page == "🤖 Performance Predictor":
+    show_title("Student Performance Predictor", "Explore a demonstration ML prediction and support suggestions.")
+    st.warning(
+        "Demonstration model: its training labels are generated from transparent example rules, "
+        "not from verified historical student outcomes. Treat predictions as educational examples, "
+        "not reliable forecasts about real students."
     )
+    with st.form("predictor_form"):
+        left, right = st.columns(2)
+        with left:
+            attendance = st.slider("Attendance (%)", 0, 100, 75)
+            study_hours = st.slider("Study hours per day", 0.0, 12.0, 4.0, 0.5)
+        with right:
+            math = st.slider("Math marks", 0, 100, 50)
+            science = st.slider("Science marks", 0, 100, 50)
+            english = st.slider("English marks", 0, 100, 50)
+        predict = st.form_submit_button("Predict Support Category", use_container_width=True)
+
+    if predict:
+        inputs = {
+            "Attendance": float(attendance), "Study_Hours": float(study_hours),
+            "Math": float(math), "Science": float(science), "English": float(english),
+        }
+        result = predict_student_support(inputs)
+        st.markdown("---")
+        st.subheader(f"Suggested category: {result['category']}")
+        st.write(result["explanation"])
+        st.subheader("Suggested next steps")
+        for suggestion in result["suggestions"]:
+            st.markdown(f"- {suggestion}")
+        st.caption("The category is a demo model output, not a diagnosis or a guaranteed academic outcome.")
+
+    # This block is intentionally inside the Performance Predictor branch.
+    # It therefore appears ONLY on this page, not on the Dashboard or other pages.
     st.markdown("---")
+    st.subheader("📊 Machine Learning Model Evaluation")
+    metrics = get_model_evaluation()
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Accuracy", f"{metrics['accuracy']:.2%}")
+    col2.metric("Precision", f"{metrics['precision']:.2%}")
+    col3.metric("Recall", f"{metrics['recall']:.2%}")
+    col4.metric("F1-Score", f"{metrics['f1_score']:.2%}")
+    st.caption(f"Training samples: {metrics['training_samples']} | Testing samples: {metrics['test_samples']}")
+    st.subheader("Confusion Matrix")
+    matrix = pd.DataFrame(
+        metrics["confusion_matrix"],
+        index=metrics["class_labels"],
+        columns=metrics["class_labels"],
+    )
+    matrix.index.name = "Actual"
+    matrix.columns.name = "Predicted"
+    st.dataframe(matrix, use_container_width=True)
+    st.info(
+        "This demonstration model is trained on synthetic data. These scores measure "
+        "how well it reproduces generated rules, not validated real-world student outcomes."
+    )
 
+
+# ============================= SPARK SQL & RDD =============================
+elif page == "⚡ Spark SQL & RDD":
+    show_title("Spark SQL & RDD Analytics", "Run distributed-data operations on the student dataset.")
     df = create_dataframe()
-
     if df is None:
-        st.warning("No student records found.")
-
+        st.info("No student records are available yet.")
     else:
         df = calculate_performance(df)
         register_student_view(df)
-
-        tab1, tab2 = st.tabs([
-            "🔷 Spark SQL",
-            "🔶 Spark RDD"
-        ])
-
-        # --- SPARK SQL ---
+        tab1, tab2 = st.tabs(["🔷 Spark SQL", "🔶 Spark RDD"])
         with tab1:
-            st.subheader("🔷 Spark SQL Queries")
-            st.caption(
-                "These queries run directly through spark.sql()"
-            )
-
-            if st.button(
-                "▶ Run Class Summary",
-                use_container_width=True
-            ):
-                result = sql_class_summary(spark).toPandas()
-                st.dataframe(result, use_container_width=True)
-
-            if st.button(
-                "▶ Run Top Students",
-                use_container_width=True
-            ):
-                result = sql_top_students(spark).toPandas()
-                st.dataframe(result, use_container_width=True)
-
-            if st.button(
-                "▶ Run At-Risk Students",
-                use_container_width=True
-            ):
+            st.subheader("Spark SQL Queries")
+            st.caption("These buttons run queries through spark.sql().")
+            if st.button("Run Class Summary", use_container_width=True):
+                st.dataframe(sql_class_summary(spark).toPandas(), use_container_width=True, hide_index=True)
+            if st.button("Run Top Students", use_container_width=True):
+                st.dataframe(sql_top_students(spark).toPandas(), use_container_width=True, hide_index=True)
+            if st.button("Run At-Risk Students", use_container_width=True):
                 result = sql_at_risk_students(spark).toPandas()
-                if len(result) == 0:
-                    st.success("✅ No at-risk students!")
+                if result.empty:
+                    st.success("No students meet the current attention thresholds.")
                 else:
-                    st.dataframe(
-                        result,
-                        use_container_width=True
-                    )
-
-        # --- RDD ---
+                    st.dataframe(result, use_container_width=True, hide_index=True)
         with tab2:
-            st.subheader("🔶 Spark RDD Operations")
-            st.caption(
-                "These use map(), reduceByKey(), collect()"
-            )
-
-            if st.button(
-                "▶ Run Grade Distribution",
-                use_container_width=True
-            ):
+            st.subheader("Spark RDD Operations")
+            st.caption("These use map(), reduceByKey() and collect().")
+            if st.button("Run Grade Distribution", use_container_width=True):
                 results = rdd_grade_distribution(df)
-                rdd_df = pd.DataFrame(
-                    results,
-                    columns=["Grade", "Count"]
-                ).sort_values("Grade")
-                st.dataframe(
-                    rdd_df,
-                    use_container_width=True
-                )
-                fig = px.bar(
-                    rdd_df,
-                    x="Grade",
-                    y="Count",
-                    color="Grade",
-                    title="Grade Distribution via RDD",
-                    color_discrete_sequence=PLOTLY_COLORS
-                )
+                rdd_df = pd.DataFrame(results, columns=["Grade", "Count"]).sort_values("Grade")
+                st.dataframe(rdd_df, use_container_width=True, hide_index=True)
+                fig = px.bar(rdd_df, x="Grade", y="Count", color="Grade",
+                             color_discrete_sequence=PLOTLY_COLORS, title="Grade distribution via RDD")
                 fig.update_layout(**PLOTLY_LAYOUT)
                 st.plotly_chart(fig, use_container_width=True)
-
-            if st.button(
-                "▶ Run Pass/Fail Distribution",
-                use_container_width=True
-            ):
+            if st.button("Run Pass / Fail Distribution", use_container_width=True):
                 results = rdd_pass_fail_distribution(df)
-                rdd_df = pd.DataFrame(
-                    results,
-                    columns=["Status", "Count"]
-                )
-                st.dataframe(
-                    rdd_df,
-                    use_container_width=True
-                )
-                fig2 = px.pie(
-                    rdd_df,
-                    names="Status",
-                    values="Count",
-                    color="Status",
-                    color_discrete_map={
-                        "PASS": "#B5A49B",
-                        "FAIL": "#635147"
-                    },
-                    title="Pass/Fail via RDD"
-                )
-                fig2.update_layout(**PLOTLY_LAYOUT)
-                st.plotly_chart(fig2, use_container_width=True)
+                rdd_df = pd.DataFrame(results, columns=["Status", "Count"])
+                st.dataframe(rdd_df, use_container_width=True, hide_index=True)
+                fig = px.pie(rdd_df, names="Status", values="Count", hole=.55,
+                             color="Status", color_discrete_map={"PASS": PASS_COLOR, "FAIL": FAIL_COLOR},
+                             title="Pass/fail distribution via RDD")
+                fig.update_layout(**PLOTLY_LAYOUT)
+                fig.update_traces(marker=dict(line=dict(color="#FFFFFF", width=2)))
+                st.plotly_chart(fig, use_container_width=True)

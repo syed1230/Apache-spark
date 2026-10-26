@@ -1,12 +1,14 @@
+
 import csv
-import os
+from pathlib import Path
 
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-CSV_FILE = "data/students.csv"
+DATA_DIR = Path(__file__).resolve().parent
+CSV_FILE = DATA_DIR / "students.csv"
 
 COLUMNS = [
     "Student_ID",
@@ -16,7 +18,7 @@ COLUMNS = [
     "Study_Hours",
     "Math",
     "Science",
-    "English"
+    "English",
 ]
 
 
@@ -27,10 +29,12 @@ COLUMNS = [
 def initialize_csv():
     """Create the CSV file with headers if it does not exist."""
 
-    os.makedirs("data", exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    if not os.path.exists(CSV_FILE):
-        with open(CSV_FILE, "w", newline="", encoding="utf-8") as file:
+    if not CSV_FILE.exists():
+        with CSV_FILE.open(
+            "w", newline="", encoding="utf-8"
+        ) as file:
             writer = csv.DictWriter(file, fieldnames=COLUMNS)
             writer.writeheader()
 
@@ -44,7 +48,9 @@ def load_students():
 
     initialize_csv()
 
-    with open(CSV_FILE, "r", newline="", encoding="utf-8") as file:
+    with CSV_FILE.open(
+        "r", newline="", encoding="utf-8"
+    ) as file:
         reader = csv.DictReader(file)
         return list(reader)
 
@@ -56,13 +62,12 @@ def load_students():
 def student_exists(student_id):
     """Check whether a student ID already exists."""
 
-    students = load_students()
+    target_id = str(student_id).strip()
 
-    for student in students:
-        if student["Student_ID"] == str(student_id):
-            return True
-
-    return False
+    return any(
+        student["Student_ID"].strip() == target_id
+        for student in load_students()
+    )
 
 
 # ============================================================
@@ -70,15 +75,25 @@ def student_exists(student_id):
 # ============================================================
 
 def add_student(student):
-    """Add a new student to the CSV file."""
+    """Add a new student unless the ID already exists."""
 
     initialize_csv()
 
-    if student_exists(student["Student_ID"]):
+    student_id = str(student["Student_ID"]).strip()
+
+    if not student_id or student_exists(student_id):
         return False
 
-    with open(CSV_FILE, "a", newline="", encoding="utf-8") as file:
+    new_student = {
+        column: student.get(column, "")
+        for column in COLUMNS
+    }
+    new_student["Student_ID"] = student_id
+
+    with CSV_FILE.open(
+        "a", newline="", encoding="utf-8"
+    ) as file:
         writer = csv.DictWriter(file, fieldnames=COLUMNS)
-        writer.writerow(student)
+        writer.writerow(new_student)
 
     return True
